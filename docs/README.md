@@ -127,6 +127,25 @@ To configure the client, we need to set another environment variable:
 `GSSPROXY_SOCKET`.  So, we set that in the same way we set `GSS_USE_PROXY`
 (i.e., `GSSPROXY_SOCKET=/var/lib/gssproxy/my_app.sock`), and launch.
 
+## Clients running in AT_SECURE context
+
+When a client application is running in a secure execution context (e.g., setuid/setgid programs where `getauxval(AT_SECURE)` returns non-zero), standard environment variables such as `GSSPROXY_SOCKET` are ignored by the gssproxy client to prevent security issues.
+
+In this case, the gssproxy client automatically constructs the socket name based on the default socket and the program name. For instance, if the program is called `my_app`, the client will try to connect to a socket named `/var/lib/gssproxy/default.sock.my_app` (assuming the default socket path is `/var/lib/gssproxy/default.sock`).
+
+To provide access to these clients, you can configure your gssproxy service to listen on this specific socket. In your configuration file, add or modify the `socket` directive:
+
+```INI
+[service/my_app]
+    mechs = krb5
+    cred_store = keytab:/etc/path/to.keytab
+    euid = appuser
+    program = /usr/local/bin/my_app
+    socket = /var/lib/gssproxy/default.sock.my_app
+```
+
+Then reload the gssproxy configuration: `systemctl try-reload-or-restart gssproxy`. This ensures that even in an `AT_SECURE` context, the application can securely communicate with gssproxy using the expected socket.
+
 ## How to know it's working
 
 By far the easiest way to tell is to have a configuration working *without*

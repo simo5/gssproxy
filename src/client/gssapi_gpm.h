@@ -16,6 +16,7 @@
 #include "src/gp_common.h"
 #include "src/gp_conv.h"
 
+int gpm_sock_check(void);
 int gpm_make_call(int proc, union gp_rpc_arg *arg, union gp_rpc_res *res);
 void gpm_free_xdrs(int proc, union gp_rpc_arg *arg, union gp_rpc_res *res);
 

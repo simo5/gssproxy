@@ -9,6 +9,7 @@
 #include <pthread.h>
 #include <sys/epoll.h>
 #include <fcntl.h>
+#include <sys/auxv.h>
 #include <sys/random.h>
 #include <sys/timerfd.h>
 
@@ -64,17 +65,51 @@ static void gpm_init_once(void)
     gpm_display_status_init_once();
 }
 
+static int get_program_name(char *name, size_t size)
+{
+    ssize_t ret;
+    char *p;
+
+    ret = readlink("/proc/self/exe", name, size - 1);
+    if (ret == -1) {
+        return errno;
+    }
+    name[ret] = '\0';
+
+    p = strrchr(name, '/');
+    if (p) {
+        p++;
+        memmove(name, p, ret + 1 - (p - name));
+    }
+
+    return 0;
+}
+
 static int get_pipe_name(char *name)
 {
     const char *socket;
-    int ret;
+    unsigned long auxval;
+    int ret = 1;
 
-    socket = gp_getenv("GSSPROXY_SOCKET");
-    if (!socket) {
-        socket = GP_SOCKET_NAME;
+    /* check if this is a "secure" client */
+    auxval = getauxval(AT_SECURE);
+
+    if (auxval == 0) {
+        /* default case */
+        socket = gp_getenv("GSSPROXY_SOCKET");
+        if (!socket) {
+            socket = GP_SOCKET_NAME;
+        }
+
+        ret = snprintf(name, PATH_MAX, "%s", socket);
+    } else {
+        char proc[PATH_MAX];
+        ret = get_program_name(proc, sizeof(proc));
+        if (ret) {
+            return ret;
+        }
+        ret = snprintf(name, PATH_MAX, "%s.%s", GP_SOCKET_NAME, proc);
     }
-
-    ret = snprintf(name, PATH_MAX, "%s", socket);
     if (ret < 0 || ret >= PATH_MAX) {
         return ENAMETOOLONG;
     }
@@ -669,6 +704,24 @@ struct gpm_rpc_fn_set {
         (xdrproc_t)xdr_gssx_res_wrap_size_limit,
     }
 };
+
+int gpm_sock_check(void)
+{
+    struct gpm_ctx *gpmctx;
+    int ret;
+
+    gpmctx = gpm_get_ctx();
+    if (!gpmctx) {
+        return EFAULT;
+    }
+
+    ret = gpm_grab_sock(gpmctx);
+    if (ret == 0) {
+        gpm_release_sock(gpmctx);
+    }
+
+    return ret;
+}
 
 int gpm_make_call(int proc, union gp_rpc_arg *arg, union gp_rpc_res *res)
 {
